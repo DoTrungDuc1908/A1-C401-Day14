@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+
 class BenchmarkRunner:
     def __init__(
         self,
@@ -26,7 +27,6 @@ class BenchmarkRunner:
         self.case_timeout_sec = case_timeout_sec
 
     async def _maybe_await(self, value: Any) -> Any:
-        """Cho phép runner dùng được cả component async và sync."""
         if inspect.isawaitable(value):
             return await value
         return value
@@ -46,18 +46,18 @@ class BenchmarkRunner:
             )
         )
 
-    async def run_single_test(self, test_case: Dict) -> Dict:
+    async def run_single_test(self, test_case: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.perf_counter()
-
         try:
             response = await asyncio.wait_for(
                 self._call_agent(test_case["question"]),
                 timeout=self.case_timeout_sec,
             )
             latency = time.perf_counter() - start_time
-
-            ragas_scores = await self._score_retrieval(test_case, response)
-            judge_result = await self._judge_answer(test_case, response)
+            ragas_scores, judge_result = await asyncio.gather(
+                self._score_retrieval(test_case, response),
+                self._judge_answer(test_case, response),
+            )
             final_score = float(judge_result.get("final_score", 0.0))
             metadata = response.get("metadata", {})
 
@@ -73,6 +73,7 @@ class BenchmarkRunner:
                 "latency_sec": latency,
                 "tokens_used": int(metadata.get("tokens_used", 0) or 0),
                 "cost_usd": float(metadata.get("cost_usd", 0.0) or 0.0),
+                "metadata": metadata,
                 "agent_metadata": metadata,
                 "ragas": ragas_scores,
                 "judge": judge_result,
@@ -93,6 +94,7 @@ class BenchmarkRunner:
                 "latency_sec": latency,
                 "tokens_used": 0,
                 "cost_usd": 0.0,
+                "metadata": {},
                 "agent_metadata": {},
                 "ragas": {
                     "faithfulness": 0.0,
@@ -115,19 +117,14 @@ class BenchmarkRunner:
                 "error": repr(exc),
             }
 
-    async def run_all(self, dataset: List[Dict], batch_size: int = 5) -> List[Dict]:
-        """
-        Chạy song song bằng asyncio.gather với giới hạn batch_size để không bị Rate Limit.
-        """
+    async def run_all(self, dataset: List[Dict[str, Any]], batch_size: int = 10) -> List[Dict[str, Any]]:
         if batch_size <= 0:
             batch_size = self.default_batch_size
-
-        results = []
+        results: List[Dict[str, Any]] = []
         for i in range(0, len(dataset), batch_size):
             batch = dataset[i:i + batch_size]
             tasks = [self.run_single_test(case) for case in batch]
-            batch_results = await asyncio.gather(*tasks)
-            results.extend(batch_results)
+            results.extend(await asyncio.gather(*tasks))
         return results
 
     def summarize(
@@ -140,35 +137,12 @@ class BenchmarkRunner:
         regression: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         total = len(results)
-        if total == 0:
-            return {
-                "metadata": {
-                    "version": version,
-                    "total": 0,
-                    "timestamp": datetime.now().isoformat(timespec="seconds"),
-                    "duration_sec": round(duration_sec or 0.0, 4),
-                    "judge_models": [],
-                    "release_decision": release_decision or "BLOCK",
-                },
-                "metrics": {
-                    "avg_score": 0.0,
-                    "hit_rate": 0.0,
-                    "mrr": 0.0,
-                    "agreement_rate": 0.0,
-                    "pass_rate": 0.0,
-                    "avg_latency_sec": 0.0,
-                    "total_tokens": 0,
-                    "total_cost_usd": 0.0,
-                },
-                "regression": regression or {},
-            }
-
         metrics = {
             "avg_score": self._avg(results, lambda r: r.get("judge", {}).get("final_score", 0.0)),
             "hit_rate": self._avg(results, lambda r: r.get("ragas", {}).get("retrieval", {}).get("hit_rate", 0.0)),
             "mrr": self._avg(results, lambda r: r.get("ragas", {}).get("retrieval", {}).get("mrr", 0.0)),
             "agreement_rate": self._avg(results, lambda r: r.get("judge", {}).get("agreement_rate", 0.0)),
-            "pass_rate": sum(1 for r in results if r.get("status") == "pass") / total,
+            "pass_rate": sum(1 for r in results if r.get("status") == "pass") / total if total else 0.0,
             "avg_latency_sec": self._avg(results, lambda r: r.get("latency_sec", r.get("latency", 0.0))),
             "total_tokens": sum(int(r.get("tokens_used", 0) or 0) for r in results),
             "total_cost_usd": sum(float(r.get("cost_usd", 0.0) or 0.0) for r in results),
@@ -179,9 +153,9 @@ class BenchmarkRunner:
                 "version": version,
                 "total": total,
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "duration_sec": round(duration_sec if duration_sec is not None else sum(r.get("latency_sec", 0.0) for r in results), 4),
+                "duration_sec": round(duration_sec if duration_sec is not None else 0.0, 4),
                 "judge_models": self._collect_judge_models(results),
-                "release_decision": release_decision or "PENDING_INTEGRATION_GATE",
+                "release_decision": release_decision or "PENDING",
             },
             "metrics": {
                 "avg_score": round(metrics["avg_score"], 4),
@@ -209,12 +183,7 @@ class BenchmarkRunner:
         summary = self.summarize(results, version=version, duration_sec=duration_sec)
         return results, summary
 
-    def save_reports(
-        self,
-        results: List[Dict[str, Any]],
-        summary: Dict[str, Any],
-        output_dir: str = "reports",
-    ) -> None:
+    def save_reports(self, results: List[Dict[str, Any]], summary: Dict[str, Any], output_dir: str = "reports") -> None:
         os.makedirs(output_dir, exist_ok=True)
         with open(os.path.join(output_dir, "benchmark_results.json"), "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
@@ -256,12 +225,7 @@ async def _demo_run() -> None:
     from engine.retrieval_eval import RetrievalEvaluator
 
     dataset = BenchmarkRunner.load_dataset()
-    runner = BenchmarkRunner(
-        MainAgent(),
-        RetrievalEvaluator(),
-        LLMJudge(),
-        default_batch_size=10,
-    )
+    runner = BenchmarkRunner(MainAgent(), RetrievalEvaluator(), LLMJudge(), default_batch_size=10)
     results, summary = await runner.run_benchmark(dataset, batch_size=10)
     runner.save_reports(results, summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))

@@ -1,31 +1,65 @@
-# Báo cáo Phân tích Thất bại (Failure Analysis Report)
+# Failure Analysis Report
 
-## 1. Tổng quan Benchmark
-- **Tổng số cases:** 50
-- **Tỉ lệ Pass/Fail:** X/Y
-- **Điểm RAGAS trung bình:**
-    - Faithfulness: 0.XX
-    - Relevancy: 0.XX
-- **Điểm LLM-Judge trung bình:** X.X / 5.0
+## 1. Benchmark Overview
 
-## 2. Phân nhóm lỗi (Failure Clustering)
-| Nhóm lỗi | Số lượng | Nguyên nhân dự kiến |
-|----------|----------|---------------------|
-| Hallucination | 5 | Retriever lấy sai context |
-| Incomplete | 3 | Prompt quá ngắn, không yêu cầu chi tiết |
-| Tone Mismatch | 2 | Agent trả lời quá suồng sã |
+- Total cases: 50
+- Pass/Fail: 39 pass / 11 fail
+- Average metrics:
+  - LLM-judge score: 3.84 / 5.0
+  - Hit Rate@3: 0.90
+  - MRR: 0.84
+  - Agreement Rate: 0.898
+  - Pass Rate: 0.78
+  - Average latency: 0.057 seconds/case
+  - Total tokens: 7,500
+  - Total cost: 0.001125 USD
+- Regression gate: APPROVE
+  - V1 average score: 3.8352
+  - V2 average score: 3.8352
+  - Delta score: 0.0
+  - Duration: 0.32 seconds
 
-## 3. Phân tích 5 Whys (Chọn 3 case tệ nhất)
+## 2. Failure Clustering
 
-### Case #1: [Mô tả ngắn]
-1. **Symptom:** Agent trả lời sai về...
-2. **Why 1:** LLM không thấy thông tin trong context.
-3. **Why 2:** Vector DB không tìm thấy tài liệu liên quan nhất.
-4. **Why 3:** Chunking size quá lớn làm loãng thông tin quan trọng.
-5. **Why 4:** ...
-6. **Root Cause:** Chiến lược Chunking không phù hợp với dữ liệu bảng biểu.
+| Failure group | Count | Evidence | Likely root cause |
+| --- | ---: | --- | --- |
+| Out-of-context false retrieval | 5 | `ooc_001` to `ooc_005` retrieved `doc_010`, `doc_004`, `doc_002` even though expected ids were empty | Retriever has no confidence threshold, so it always returns weak keyword matches |
+| Wrong top-1 retrieval for normal cases | 6 | WFH and sick-leave questions retrieved `doc_001` before the correct document, causing the generated answer to use the wrong first context | Keyword overlap overweights generic words such as policy/leave and lacks exact-title boosting/reranking |
+| Low answer completeness | Observed in failed normal cases | Correct document was sometimes present at rank 2, but generation only used `contexts[0]` | Generator ignores lower-ranked relevant contexts instead of synthesizing all retrieved evidence |
 
-## 4. Kế hoạch cải tiến (Action Plan)
-- [ ] Thay đổi Chunking strategy từ Fixed-size sang Semantic Chunking.
-- [ ] Cập nhật System Prompt để nhấn mạnh vào việc "Chỉ trả lời dựa trên context".
-- [ ] Thêm bước Reranking vào Pipeline.
+## 3. 5 Whys Analysis
+
+### Case #1: Out-of-context phone allowance question
+
+1. Symptom: Agent answered from unrelated company policy docs instead of saying the knowledge base does not contain phone allowance information.
+2. Why 1: Retriever returned documents with weak keyword overlap.
+3. Why 2: Retrieval logic has no minimum score or confidence threshold.
+4. Why 3: Out-of-context cases are represented with `expected_retrieval_ids = []`, but the agent does not use that style of behavior during retrieval.
+5. Why 4: The generation step trusts any retrieved context and does not verify whether the match is strong enough.
+6. Root cause: Missing no-answer detection between retrieval and generation.
+
+### Case #2: WFH policy question
+
+1. Symptom: The correct WFH document appeared at rank 2, while leave policy appeared at rank 1.
+2. Why 1: Generic terms in the question matched the leave-policy title/content strongly.
+3. Why 2: The tokenizer uses simple whitespace splitting and does not normalize domain terms like WFH.
+4. Why 3: Ranking does not add enough boost for exact title keywords or rare terms.
+5. Why 4: The generator only uses the first context, so a rank-2 hit still produces a poor answer.
+6. Root cause: Retrieval ranking and answer synthesis both depend too heavily on top-1 context.
+
+### Case #3: Sick-leave question
+
+1. Symptom: The sick-leave document was retrieved, but rank 2; answer used annual leave policy first.
+2. Why 1: Both documents share leave-related wording.
+3. Why 2: The retriever does not distinguish different leave categories with phrase matching.
+4. Why 3: There is no reranker to compare the full question against document titles.
+5. Why 4: The response builder does not combine multiple contexts when the correct source is not top-1.
+6. Root cause: Lack of semantic/phrase-aware reranking for closely related HR policy documents.
+
+## 4. Improvement Action Plan
+
+- Add a retrieval confidence threshold; if top score is too low, return no context and answer that the document set has no supporting information.
+- Add exact-title and rare-token boosts for terms such as WFH, sick leave, insurance, equipment, and business trip.
+- Use all retrieved contexts that pass the threshold instead of only `contexts[0]`.
+- Add a lightweight reranker after initial keyword retrieval.
+- Add regression checks that specifically track out-of-context accuracy and top-1 retrieval accuracy, not only Hit Rate@3.

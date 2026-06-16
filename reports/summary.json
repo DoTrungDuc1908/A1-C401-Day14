@@ -1,0 +1,36 @@
+{
+  "metadata": {
+    "version": "Agent_V2_Optimized",
+    "total": 50,
+    "timestamp": "2026-06-16 15:50:04",
+    "duration_sec": 0.299,
+    "judge_models": [
+      "strict_groundedness_judge",
+      "lenient_coverage_judge"
+    ],
+    "release_decision": "APPROVE"
+  },
+  "metrics": {
+    "avg_score": 3.8352,
+    "hit_rate": 0.9,
+    "mrr": 0.84,
+    "agreement_rate": 0.898,
+    "pass_rate": 0.78,
+    "avg_latency_sec": 0.05728509600623511,
+    "total_tokens": 7500,
+    "total_cost_usd": 0.001125
+  },
+  "regression": {
+    "v1_avg_score": 3.8352,
+    "v2_avg_score": 3.8352,
+    "delta_score": 0.0,
+    "decision": "APPROVE",
+    "checks": {
+      "delta_score_non_negative": true,
+      "hit_rate_at_least_0_8": true,
+      "agreement_rate_at_least_0_7": true,
+      "duration_under_120_sec": true
+    },
+    "reason": "All release gate checks passed."
+  }
+}
