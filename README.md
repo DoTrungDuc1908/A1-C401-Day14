@@ -75,7 +75,7 @@ python check_lab.py
 ## ⚠️ Lưu ý quan trọng
 - **Bắt buộc** chạy `python data/synthetic_gen.py` trước để tạo file `data/golden_set.jsonl`. File này không được commit sẵn trong repo.
 - Trước khi nộp bài, hãy chạy `python check_lab.py` để đảm bảo định dạng dữ liệu đã chuẩn. Bất kỳ lỗi định dạng nào dẫn đến việc script chấm điểm tự động không chạy được sẽ bị trừ 5 điểm thủ tục.
-- File `.env` chứa API Key **KHÔNG** được push lên GitHub.
+- File `.env` chứa API Key **KHÔNG** được push lên GitHub. Copy `.env.example` thành `.env` và điền key của bạn.
 
 ---
 *Chúc nhóm bạn xây dựng được một Evaluation Factory thực sự mạnh mẽ!*
