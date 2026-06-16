@@ -1,5 +1,16 @@
 # Failure Analysis Report
 
+**Nhóm A1-C401**
+
+| Thành viên | MSSV | Vai trò |
+|---|---|---|
+| Lê Quang Thọ | 2A202600597 | Data Processing & Analysis Support |
+| Phạm Mai Anh | 2A202600644 | — |
+| Đỗ Trung Đức | 2A202600918 | Team Lead, Core Engine |
+| Phạm Ngọc Hải Dương (Shiner-2) | 2A202600629 | Judge Runner, Reports |
+| Vương Nguyệt Bình | 2A202600932 | — |
+| Nguyễn Văn Sáng | 2A202600598 | Retrieval Evaluation |
+
 ## 1. Benchmark Overview
 
 - Total cases: 50
